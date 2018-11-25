@@ -3,7 +3,7 @@
 
 
 //This module handles injecting and sniffing packets. It implements the
-
+#include <stdint.h>
 #define TRANCEIVER_MAX_PACKET_BYTES 64
 #define TRANCEIVER_MAX_NAME_LENGTH 16
 const int16_t CHANNEL_VALUE_UNDEFINED = -32768;
@@ -27,6 +27,7 @@ typedef enum {
 
 typedef struct {
   int8_t rssi;
+  uint8_t source_id[6];
   uint8_t packet_id;
   uint8_t packet_len;
   packet_types packet_type;
@@ -53,12 +54,6 @@ void tranceiver_get_latest_packet(uint8_t buff[], packet_stats* stats);
  * Returns nonzero if not sent
 */
 uint8_t tranceiver_send_telemtry(const telemetry_status status, const float value, const char name[], const uint8_t name_len);
-
-/* 
- * Sends a control packet with the specified channels 
- * Returns nonzero if not sent
- */
-uint8_t tranceiver_send_control_packet(int16_t channel_values[], uint8_t num_channels);
 
 /*
  * Broadcasts this devices name to the world
@@ -91,5 +86,7 @@ void tranceiver_set_channel(uint8_t channel);
  * packet is sent with an ID. This ID should be 6 bytes long.
  */
 void tranceiver_set_id(const uint8_t id_bytes[6]);
+
+void tranceiver_enable_filter_by_id(uint8_t enabled);
 
 #endif

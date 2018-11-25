@@ -13,7 +13,8 @@ extern "C" {
 #define DEFAULT_TRANSMIT_POWER 8 //2dbm = 1.5mW
 
 uint8_t last_sent_packet_count = 0;
-uint8_t laset_received_packet_id = 0;
+uint8_t filter_by_id = 1;
+
 
 uint8_t packet_header[] = {
 	0x08, 0x00, // Data packet (normal subtype)
@@ -29,11 +30,14 @@ uint8_t packet_header[] = {
 };
 
 #define ID_OFFSET 4
-#define PACKET_COUNT_OFFSET 16
-#define PACKET_TYPE_OFFSET 21
+#define ID_LENGTH 6
+#define PACKET_COUNT_OFFSET 22
+#define PACKET_TYPE_OFFSET 23
 
 
 static uint8_t tx_packet_buffer[sizeof(packet_header) + TRANCEIVER_MAX_PACKET_BYTES] = {0};
+uint8_t rx_packet_buffer[sizeof(packet_stats) + TRANCEIVER_MAX_PACKET_BYTES] = {0};
+
 
 /* ESp Gubbage. I can't find what file this should be #included from. Everyone online just
  * has this in the file directly....
@@ -100,7 +104,6 @@ struct sniffer_buf2{
  */
 
 
-
 void tranceiver_set_channel(uint8_t channel){
   Serial.print("Set channel to: ");
   Serial.println(channel);
@@ -131,6 +134,13 @@ void tranceiver_set_id(const uint8_t id_bytes[6]){
   print_buffer(packet_header, sizeof(packet_header));
 }
 
+void tranceiver_enable_filter_by_id(uint8_t enabled){
+  filter_by_id = enabled;
+  if (filter_by_id){
+    wifi_promiscuous_set_mac(&packet_header[ID_OFFSET]);
+  }
+}
+
 
 static void _handle_data_packet(uint8_t* buffer, uint16_t len) {
 	/* Runs whenever there is an incoming packet */
@@ -145,21 +155,60 @@ static void _handle_data_packet(uint8_t* buffer, uint16_t len) {
     return;
   }
   
-	
 	struct sniffer_buf *snifferPacket = (struct sniffer_buf*) buffer;
 
   //The ESP8266 doesn't provide all the data, maxing out with the first 36 bytes
   uint16_t actual_length = snifferPacket->lenseq[0].len; 
   uint16_t provided_length = min(actual_length, 36);
+  if (snifferPacket->cnt == 0){
+    Serial.println("Uhh?!");
+  }
 
-  //Serial.println("Got Packet");
-  //print_buffer(snifferPacket->buf, provided_length);
-  //Check that the id of the incoming packet matches and that it is a data packet etc...
-	if (memcmp(packet_header, snifferPacket->buf, sizeof(packet_header)) != 0) {
-    return;
-	}
+  /* Check that the ID matches what we expect */
+  if (filter_by_id){
+    if (memcmp((snifferPacket->buf)+ID_OFFSET, packet_header+ID_OFFSET, ID_LENGTH) != 0) {
+      return;
+    }
+  }
+  // Make metadata and data continuous in memory
+  packet_stats* this_packet = (packet_stats*)&rx_packet_buffer;
+  this_packet->rssi = snifferPacket->rx_ctrl.rssi;
+  this_packet->packet_len = 12;
+  this_packet->packet_id = *(uint8_t*)((snifferPacket->buf) + PACKET_COUNT_OFFSET);
+  uint8_t packet_type = *(uint8_t*)((snifferPacket->buf) + PACKET_TYPE_OFFSET);
+  this_packet->packet_type = (packet_types)packet_type;
+  memcpy(
+    this_packet->source_id,
+    &(snifferPacket->buf[ID_OFFSET]),
+    6
+  );
+  memcpy(
+    rx_packet_buffer + sizeof(packet_stats),
+    &(snifferPacket->buf[10]),
+    12
+  );
+}
 
-  Serial.println("Got Correct Packet");
+void tranceiver_get_latest_packet(uint8_t buff[], packet_stats* stats){
+  packet_stats* this_packet = (packet_stats*)&rx_packet_buffer;
+  memcpy(
+    stats,
+    this_packet,
+    sizeof(packet_stats)
+   );
+
+  memcpy(
+    buff,
+    rx_packet_buffer + sizeof(packet_stats),
+    min(this_packet->packet_len, TRANCEIVER_MAX_PACKET_BYTES)
+  );
+}
+
+
+volatile uint8_t can_send = 1;
+void callback_send_pkt_freedom(uint8 status)
+{
+    can_send = 1;
 }
 
 
@@ -173,6 +222,8 @@ void tranceiver_init(void){
   delay(10);
   wifi_promiscuous_enable(1);
 
+  wifi_register_send_pkt_freedom_cb(callback_send_pkt_freedom);
+
   uint8_t mac[6] = {0};
   wifi_get_macaddr(STATION_IF, mac);
   tranceiver_set_id(mac);
@@ -181,11 +232,18 @@ void tranceiver_init(void){
 }
 
 
+
+
 // Send a raw packet
 static uint8_t tranceiver_send_packet(const packet_types packet_type, const uint8_t data[], const uint16_t data_len){
 	if (data_len > TRANCEIVER_MAX_PACKET_BYTES){
 		return 1;
 	}
+  while (!can_send){
+    Serial.println("Waiting for previous packet");
+    delay(1);
+  }
+  can_send = 0;
 
   // Copy in header
 	memcpy(&tx_packet_buffer, &packet_header, sizeof(packet_header)); 
@@ -202,17 +260,18 @@ static uint8_t tranceiver_send_packet(const packet_types packet_type, const uint
   }
 	//memcpy((&tx_packet_buffer)+sizeof(packet_header), data, data_len);
 
-  //Send it
-  Serial.print("Sending: ");
-  print_buffer(tx_packet_buffer, sizeof(packet_header) + data_len);
   
-	wifi_send_pkt_freedom(
+	int8_t res = wifi_send_pkt_freedom(
 		(uint8_t*)&tx_packet_buffer, sizeof(packet_header) + data_len,
 		false
 	);
-
-	return 0;
+  if (res != 0){
+    Serial.print("Failed to send packet: ");
+    print_buffer(tx_packet_buffer, sizeof(packet_header) + data_len);
+  }
+	return res;
 }
+
 
 uint8_t telemetry_buffer[sizeof(telemetry_packet)] = {0};
 uint8_t tranceiver_send_telemtry(const telemetry_status status, const float value, const char name[], const uint8_t name_len){
@@ -221,11 +280,6 @@ uint8_t tranceiver_send_telemtry(const telemetry_status status, const float valu
   memcpy(telemetry_buffer+5, name, min(name_len, TRANCEIVER_MAX_NAME_LENGTH));
   uint16_t total_size = min(name_len, TRANCEIVER_MAX_NAME_LENGTH) + sizeof(value) + 1;  // the 1 is the status
   return tranceiver_send_packet(PACKET_TELEMETRY, (uint8_t*)&telemetry_buffer, total_size);
-}
-
-
-uint8_t tranceiver_send_control_packet(int16_t channel_values[], uint8_t num_channels){
-  return tranceiver_send_packet(PACKET_CONTROL, (uint8_t*)channel_values, num_channels*2);
 }
 
 
