@@ -1,0 +1,6 @@
+[submodule "esp32/lib/micropython"]
+	path = esp32/lib/micropython
+	url = git@github.com:sdfgeoff/micropython.git
+[submodule "esp32/lib/esp-idf"]
+	path = esp32/lib/esp-idf
+	url = https://github.com/espressif/esp-idf.git
