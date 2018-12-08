@@ -7,6 +7,7 @@
 #define BATTERY_SCALER 620
 #define SERVO_LEFT_PIN 14
 #define SERVO_RIGHT_PIN 12
+#define BLUE_LED_PIN 2
 const uint8_t name[] = "Tichy Stick v3";
 
 TelemChannel telem_batt_voltage = {
@@ -21,6 +22,8 @@ TelemChannel telem_rssi = {
 };
 
 void setup() {
+  pinMode(BLUE_LED_PIN, OUTPUT);
+  digitalWrite(BLUE_LED_PIN, LOW);
   Serial.begin(115200);
   Serial.println("Begin Init Radio");
   tranceiver_init();
@@ -32,6 +35,7 @@ void setup() {
   register_telem(&telem_batt_voltage);
   register_telem(&telem_rssi);
   Serial.println("Init Complete");
+  digitalWrite(BLUE_LED_PIN, HIGH);
 }
 
 // ------------------------ Sensors -----------------------
@@ -48,6 +52,7 @@ packet_stats latest_packet_stats;
 
 // the loop function runs over and over again forever
 void loop() {
+  digitalWrite(BLUE_LED_PIN, LOW);
   telem_counter += 1;
   if (telem_counter > 10000){
     telem_counter = 0;
@@ -77,7 +82,8 @@ void loop() {
   telem_batt_voltage.value = getBatteryMillVolts() / 1000.0;
   telem_batt_voltage.status = status_from_value_lesser(telem_batt_voltage.value, 3.3, 2.7);
   update_telemetry();
-  
+
+  digitalWrite(BLUE_LED_PIN, HIGH);
   // Ensure the other tasks on the 8266 have time to run
   delay(10);  
 }
