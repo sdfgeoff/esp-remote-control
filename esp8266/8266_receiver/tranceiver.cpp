@@ -33,6 +33,7 @@ uint8_t packet_header[] = {
 #define ID_LENGTH 6
 #define PACKET_COUNT_OFFSET 22
 #define PACKET_TYPE_OFFSET 23
+#define DATA_1_OFFSET 10
 
 
 static uint8_t tx_packet_buffer[sizeof(packet_header) + TRANCEIVER_MAX_PACKET_BYTES] = {0};
@@ -127,8 +128,8 @@ static void print_buffer(uint8_t* buff, uint16_t len){
 
 void tranceiver_set_id(const uint8_t id_bytes[6]){
   uint8_t i = 0;
-  for (i=0; i<12; i+=1){
-    packet_header[ID_OFFSET + i] = id_bytes[i%6];
+  for (i=0; i<6; i+=1){
+    packet_header[ID_OFFSET + i] = id_bytes[i];
   }
   Serial.println("Set header to: ");
   print_buffer(packet_header, sizeof(packet_header));
@@ -246,28 +247,37 @@ static uint8_t tranceiver_send_packet(const packet_types packet_type, const uint
   can_send = 0;
 
   // Copy in header
-	memcpy(&tx_packet_buffer, &packet_header, sizeof(packet_header)); 
-
-  // Set metadata
-  tx_packet_buffer[PACKET_COUNT_OFFSET] = last_sent_packet_count;
-  last_sent_packet_count += 1;
-  tx_packet_buffer[PACKET_TYPE_OFFSET] = (uint8_t)packet_type;
+  memcpy(&tx_packet_buffer, &packet_header, sizeof(packet_header));
 
   // Copy in data
   uint16_t i = 0;
-  for (i=0; i<data_len; i++){
-    tx_packet_buffer[sizeof(packet_header) + i] = data[i];
+  uint16_t extra_bytes = 0; // Number bytes greater than the packet size
+  for (i=0; i < data_len; i++){
+    if (i < 12){ //First 12 bytes go into header
+      tx_packet_buffer[DATA_1_OFFSET + i] = data[i];
+    } else {  //The remaining data goes at teh end
+      tx_packet_buffer[sizeof(packet_header) + (i - 12)] = data[i];
+      extra_bytes += 1;
+    }
   }
-	//memcpy((&tx_packet_buffer)+sizeof(packet_header), data, data_len);
 
-  
-	int8_t res = wifi_send_pkt_freedom(
-		(uint8_t*)&tx_packet_buffer, sizeof(packet_header) + data_len,
+  // Set metadata
+  tx_packet_buffer[PACKET_TYPE_OFFSET] = (uint8_t)packet_type;
+  tx_packet_buffer[PACKET_COUNT_OFFSET] = last_sent_packet_count;
+  last_sent_packet_count += 1;
+
+  //Serial.println(data_len);
+  //Serial.println(extra_bytes);
+  //print_buffer(tx_packet_buffer, sizeof(packet_header) + extra_bytes);
+
+  int8_t res = 0;
+	res = wifi_send_pkt_freedom(
+		(uint8_t*)&tx_packet_buffer, sizeof(packet_header) + extra_bytes,
 		false
 	);
   if (res != 0){
     Serial.print("Failed to send packet: ");
-    print_buffer(tx_packet_buffer, sizeof(packet_header) + data_len);
+    print_buffer(tx_packet_buffer, sizeof(packet_header) + extra_bytes);
   }
 	return res;
 }
@@ -284,5 +294,12 @@ uint8_t tranceiver_send_telemtry(const telemetry_status status, const float valu
 
 
 uint8_t tranceiver_send_name_packet(const uint8_t name[], uint8_t len){
-  return tranceiver_send_packet(PACKET_NAME, name, len);
+  if (len > TRANCEIVER_MAX_NAME_LENGTH){
+    Serial.println("Name too long");
+    len = min(len, TRANCEIVER_MAX_NAME_LENGTH);
+  }
+  uint8_t concatenated[TRANCEIVER_MAX_NAME_LENGTH + 6] = {0x00};
+  memcpy(concatenated, packet_header+ID_OFFSET, 6); // Copy in ID
+  memcpy(concatenated + 6, name, len);
+  return tranceiver_send_packet(PACKET_NAME, concatenated, len+6);
 }

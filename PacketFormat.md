@@ -164,7 +164,21 @@ Some useful telemetry packets include things such as:
 
 ### Device Name Packet (0x03)
 In order to discover what devices are available, the receiver needs to
-communicate to the transmitter that it is expecting someone to control it.
-This is done by sending a "Device Available" packet. Which consists of a
-char array of the devices name. This packet type should only be sent when
-a receiver has not recieved any packets from a transmitter yet.
+communicate to the transmitter that it is expecting someone to control it, and
+the transmitter needs a way to distinguish the receiver from normal wifi
+traffic.
+
+Identifying the RC from normal wifi traffic is done by putting the receivers
+UID as the first six bytes of data. If this were a normal 802.11 packet, this
+would mean that a device was sending a packet to itself. As a result, the
+transmitter can check for this condition and be reasonably sure that it's
+a receiver.
+
+```
++------+------+------+------+------+------+
+| Uid1 | Uid2 | Uid3 | Uid4 | Uid5 | Uid6 |    Identifier of the receiver
++------+------+------+------+------+------+
++---------------------------------------------------+
+|  Device Name                                      |
++---------------------------------------------------+
+```

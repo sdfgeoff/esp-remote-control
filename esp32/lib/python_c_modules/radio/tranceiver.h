@@ -61,7 +61,6 @@ uint8_t tranceiver_send_telemtry(const telemetry_status status, const float valu
  * Returns nonzero if not sent
  */
 uint8_t tranceiver_send_control_packet(int16_t channel_values[], uint8_t num_channels);
-uint8_t tranceiver_send_8266_control_packet(int16_t channel_values[], uint8_t num_channels);
 
 /*
  * Broadcasts this devices name to the world

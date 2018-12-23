@@ -43,6 +43,7 @@ uint8_t packet_header[] = {
 #define ID_LENGTH 6
 #define PACKET_COUNT_OFFSET 22
 #define PACKET_TYPE_OFFSET 23
+#define DATA_1_OFFSET 10
 
 
 static uint8_t tx_packet_buffer[sizeof(packet_header) + TRANCEIVER_MAX_PACKET_BYTES] = {0};
@@ -94,35 +95,48 @@ static void _handle_data_packet(void* buff, wifi_promiscuous_pkt_type_t type) {
 
     //  Ensure the first two mac addresses are the same. This means it is not
     // and 802.11 packet, but is one of ours.
-    if (memcmp((ppkt->payload)+ID_OFFSET, ((ppkt->payload)+ID_OFFSET+ID_LENGTH), ID_LENGTH) != 0){
-        return;
-    }
+
     /* Check that the ID matches what we expect */
 	if (filter_by_id){
-		if (memcmp(packet_header+ID_OFFSET, packet_header+ID_OFFSET, ID_LENGTH) != 0) {
+		if (memcmp(packet_header+ID_OFFSET, (ppkt->payload)+ID_OFFSET, ID_LENGTH) != 0) {
 			return;
 		}
+    } else {
+        if (memcmp((ppkt->payload)+ID_OFFSET, ((ppkt->payload)+ID_OFFSET+ID_LENGTH), ID_LENGTH) != 0){
+            // Reject non-name packets
+            return;
+        }
     }
 
-	uint16_t data_len = ppkt->rx_ctrl.sig_len - sizeof(packet_header) - 4;  //magic numbers is 4=crc bytes
+	uint16_t data_len = ppkt->rx_ctrl.sig_len - sizeof(packet_header) - 4 + 12;  //magic numbers is 4=crc bytes 12=data bytes in header
 	if (data_len > TRANCEIVER_MAX_PACKET_BYTES){
 		return;
 	}
 
 	// Make metadata and data continuous in memory
     packet_stats* this_packet = (packet_stats*)&rx_packet_buffer;
+    this_packet->packet_type = PACKET_NONE;
 	this_packet->rssi = ppkt->rx_ctrl.rssi;
 	this_packet->noise_floor = ppkt->rx_ctrl.noise_floor;
 	this_packet->packet_len = data_len;
-    this_packet->packet_id = *(uint8_t*)((ppkt->payload) + PACKET_COUNT_OFFSET);
-    this_packet->packet_type = *(uint8_t*)((ppkt->payload) + PACKET_TYPE_OFFSET);
+    this_packet->packet_id = ppkt->payload[PACKET_COUNT_OFFSET];
+    this_packet->packet_type = (uint8_t)ppkt->payload[PACKET_TYPE_OFFSET];
     memcpy(
         this_packet->source_id,
         (ppkt->payload)+ID_OFFSET,
         6
     );
-	memcpy(
+
+    // The first 12 bytes are part of the header
+    memcpy(
 		rx_packet_buffer + sizeof(packet_stats),
+		(ppkt->payload)+DATA_1_OFFSET,
+		12
+	);
+
+    // The rest of the data is after the header
+	memcpy(
+		rx_packet_buffer + sizeof(packet_stats) + 12,
 		(ppkt->payload)+sizeof(packet_header),
 		data_len
 	);
@@ -179,47 +193,18 @@ void tranceiver_init(void){
 
 
 static uint8_t tranceiver_send_packet(const packet_types packet_type, const uint8_t data[], const uint16_t data_len){
-    if (data_len > TRANCEIVER_MAX_PACKET_BYTES){
-		return 1;
-    }
-
-    // Copy in header
-	memcpy(&tx_packet_buffer, &packet_header, sizeof(packet_header));
-
-    // Set metadata
-    tx_packet_buffer[PACKET_COUNT_OFFSET] = last_sent_packet_count;
-    last_sent_packet_count += 1;
-    tx_packet_buffer[PACKET_TYPE_OFFSET] = (uint8_t)packet_type;
-
-    // Copy in data
-    uint16_t i = 0;
-    for (i=0; i<data_len; i++){
-        tx_packet_buffer[sizeof(packet_header) + i] = data[i];
-    }
-    print_buffer(tx_packet_buffer, sizeof(packet_header) + data_len);
-
-	return esp_wifi_80211_tx(
-		ESP_IF_WIFI_STA,
-		(void*)&tx_packet_buffer, sizeof(packet_header) + data_len,
-		false
-	);
-}
-
-static uint8_t tranceiver_send_8266_packet(const packet_types packet_type, const uint8_t data[], const uint16_t data_len){
-    if (data_len > 12){
-		return 1;
-    }
-
     // Copy in header
 	memcpy(&tx_packet_buffer, &packet_header, sizeof(packet_header));
 
     // Copy in data
     uint16_t i = 0;
-    for (i=0; i<26; i++){
-        if (i < data_len){
-            tx_packet_buffer[10 + i] = data[i];
-        } else {
-            tx_packet_buffer[10 + i] = 0;
+    uint16_t extra_bytes = 0; // Number bytes greater than the packet size
+    for (i=0; i < data_len; i++){
+        if (i < 12){ //First 12 bytes go into header
+            tx_packet_buffer[DATA_1_OFFSET + i] = data[i];
+        } else {  //The remaining data goes at teh end
+            tx_packet_buffer[sizeof(packet_header) + (i - 12)] = data[i];
+            extra_bytes += 1;
         }
     }
 
@@ -228,9 +213,11 @@ static uint8_t tranceiver_send_8266_packet(const packet_types packet_type, const
     last_sent_packet_count += 1;
     tx_packet_buffer[PACKET_TYPE_OFFSET] = (uint8_t)packet_type;
 
+    //print_buffer(tx_packet_buffer, sizeof(packet_header) + extra_bytes);
+
     return esp_wifi_80211_tx(
 		ESP_IF_WIFI_STA,
-		(void*)&tx_packet_buffer, 36,
+		(void*)&tx_packet_buffer, sizeof(packet_header) + extra_bytes,
 		false
 	);
 }
@@ -253,10 +240,6 @@ uint8_t tranceiver_send_control_packet(int16_t channel_values[], uint8_t num_cha
 
 uint8_t tranceiver_send_name_packet(const uint8_t name[], uint8_t len){
     return tranceiver_send_packet(PACKET_NAME, name, len);
-}
-
-uint8_t tranceiver_send_8266_control_packet(int16_t channel_values[], uint8_t num_channels){
-    return tranceiver_send_8266_packet(PACKET_CONTROL, (uint8_t*)channel_values, num_channels*2);
 }
 
 

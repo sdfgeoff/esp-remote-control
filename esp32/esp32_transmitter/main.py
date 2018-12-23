@@ -77,15 +77,22 @@ class Controller:
 
     def _find_rx(self):
         """Listens for the first receiver to broadcast a name packet"""
+        radio.filter_by_id(False)
         packet_data, packet_stats = radio.get_latest_packet()
         if packet_stats[3] > 0:
             # Got a packet
             if packet_stats[1] == radio.PACKET_NAME:
-                self.display.show_internal_value("Device Name", packet_data.decode('utf-8'), radio.TELEMETRY_OK)
+                try:
+                    name = packet_data[6:].decode('utf-8')
+                except UnicodeError:
+                    name = packet_data[6:]
+                    print(packet_data)
+                self.display.show_internal_value("Device Name", name, radio.TELEMETRY_OK)
                 self.display.show_internal_value("Device Id", packet_stats[0], radio.TELEMETRY_OK)
                 radio.set_id(packet_stats[0])
                 self._connected = True
                 self._connected_id = packet_stats[0]
+                radio.filter_by_id(True)
                 self.display.set_radio_state(self._connected)
         else:
             self.display.show_internal_value("Device Name", "Not Connected", radio.TELEMETRY_ERROR)
@@ -103,7 +110,7 @@ class Controller:
         ]
         for chan_id, chan in enumerate(channels):
             channels[chan_id] = int(chan * ((2 ** 15) - 1))
-        sent = radio.send_8266_control_packet(
+        sent = radio.send_control_packet(
             channels
         )
         if sent != 0:
@@ -118,7 +125,10 @@ class Controller:
                 if packet_stats[1] == radio.PACKET_TELEMETRY:
                     status = packet_data[0]
                     value = struct.unpack('f', packet_data[1:5])[0]
-                    name = packet_data[5:].decode('utf-8')
+                    try:
+                        name = packet_data[5:].decode('utf-8')
+                    except:
+                        name = packet_data[5:]
                     self.display.show_external_value(name, value, status)
 
 

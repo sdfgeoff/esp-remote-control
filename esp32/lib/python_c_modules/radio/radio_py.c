@@ -111,27 +111,6 @@ STATIC mp_obj_t radio_send_control_packet(mp_obj_t channels) {
 }
 MP_DEFINE_CONST_FUN_OBJ_1(radio_send_control_packet_obj, radio_send_control_packet);
 
-STATIC mp_obj_t radio_send_8266_control_packet(mp_obj_t channels) {
-    mp_obj_t* channel_values_py;
-    size_t num_channels = 0;
-    mp_obj_get_array(channels, &num_channels, &channel_values_py);
-    if (num_channels > 12){
-        num_channels = 12;
-        printf("The 8266 can only receive the first 12 channels\n");
-    }
-
-    int16_t channel_values[12] = {0};
-    for (uint16_t i=0; i<num_channels; i++){
-        channel_values[i] = mp_obj_get_int(channel_values_py[i]);
-    }
-
-    int16_t res = tranceiver_send_8266_control_packet(channel_values, num_channels);
-
-    return mp_obj_new_int(res);
-}
-MP_DEFINE_CONST_FUN_OBJ_1(radio_send_8266_control_packet_obj, radio_send_8266_control_packet);
-
-
 
 STATIC const mp_map_elem_t radio_globals_table[] = {
     { MP_OBJ_NEW_QSTR(MP_QSTR___name__), MP_OBJ_NEW_QSTR(MP_QSTR_radio) },
@@ -143,7 +122,6 @@ STATIC const mp_map_elem_t radio_globals_table[] = {
     { MP_OBJ_NEW_QSTR(MP_QSTR_set_power), (mp_obj_t)&radio_set_power },
     { MP_OBJ_NEW_QSTR(MP_QSTR_set_id), (mp_obj_t)&radio_set_id_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_send_control_packet), (mp_obj_t)&radio_send_control_packet_obj },
-    { MP_OBJ_NEW_QSTR(MP_QSTR_send_8266_control_packet), (mp_obj_t)&radio_send_8266_control_packet_obj },
 
     // Constants
     { MP_ROM_QSTR(MP_QSTR_TELEMETRY_OK), MP_ROM_INT(TELEMETRY_OK) },
