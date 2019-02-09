@@ -112,6 +112,15 @@ STATIC mp_obj_t radio_send_control_packet(mp_obj_t channels) {
 MP_DEFINE_CONST_FUN_OBJ_1(radio_send_control_packet_obj, radio_send_control_packet);
 
 
+STATIC mp_obj_t radio_send_name_packet(mp_obj_t name_str) {
+    size_t name_len = 0;
+    const char* name = mp_obj_str_get_data(name_str, &name_len);
+    int16_t res = tranceiver_send_name_packet((uint8_t*)name, name_len);
+    return mp_obj_new_int(res);
+}
+MP_DEFINE_CONST_FUN_OBJ_1(radio_send_name_packet_obj, radio_send_name_packet);
+
+
 STATIC const mp_map_elem_t radio_globals_table[] = {
     { MP_OBJ_NEW_QSTR(MP_QSTR___name__), MP_OBJ_NEW_QSTR(MP_QSTR_radio) },
     // Functions
@@ -122,6 +131,7 @@ STATIC const mp_map_elem_t radio_globals_table[] = {
     { MP_OBJ_NEW_QSTR(MP_QSTR_set_power), (mp_obj_t)&radio_set_power },
     { MP_OBJ_NEW_QSTR(MP_QSTR_set_id), (mp_obj_t)&radio_set_id_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_send_control_packet), (mp_obj_t)&radio_send_control_packet_obj },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_send_name_packet), (mp_obj_t)&radio_send_name_packet_obj },
 
     // Constants
     { MP_ROM_QSTR(MP_QSTR_TELEMETRY_OK), MP_ROM_INT(TELEMETRY_OK) },

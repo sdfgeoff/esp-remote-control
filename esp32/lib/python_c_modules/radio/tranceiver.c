@@ -233,13 +233,18 @@ uint8_t tranceiver_send_telemtry(const telemetry_status status, const float valu
 }
 
 
+uint8_t tranceiver_send_name_packet(const uint8_t name[], uint8_t len){
+    if (len > TRANCEIVER_MAX_NAME_LENGTH){
+        printf("Name too long\n");
+        len = min_16(len, TRANCEIVER_MAX_NAME_LENGTH);
+    }
+    uint8_t concatenated[TRANCEIVER_MAX_NAME_LENGTH + 6] = {0x00};
+    memcpy(concatenated, packet_header+ID_OFFSET, 6); // Copy in ID
+    memcpy(concatenated + 6, name, len);
+    return tranceiver_send_packet(PACKET_NAME, concatenated, len+6);
+}
+
+
 uint8_t tranceiver_send_control_packet(int16_t channel_values[], uint8_t num_channels){
     return tranceiver_send_packet(PACKET_CONTROL, (uint8_t*)channel_values, num_channels*2);
 }
-
-
-uint8_t tranceiver_send_name_packet(const uint8_t name[], uint8_t len){
-    return tranceiver_send_packet(PACKET_NAME, name, len);
-}
-
-

@@ -23,7 +23,7 @@ class Inputs:
             machine.ADC(machine.Pin(34)),
             machine.ADC(machine.Pin(35)),
         ]
-
+            
         self.digital_inputs = [
             machine.Pin(25),
             machine.Pin(26),
@@ -32,6 +32,9 @@ class Inputs:
         for ana_in in self.analog_inputs:
             ana_in.atten(ana_in.ATTN_11DB)
 
+        self.analog_calibrations = []
+        for channel in self.analog_inputs:
+            self.analog_calibrations.append(channel.read())
 
     def get_battery_volts(self):
         """Returns the battery voltage"""
@@ -46,7 +49,9 @@ class Inputs:
         """Returns the analog input as a percentage that is centered in the
         middle of the ADC's range"""
         raw = self.analog_inputs[channel].read()
-        return (2048 - raw) / 2048
+        corrected = (self.analog_calibrations[channel] - raw) / 2048
+        print(corrected)
+        return corrected
 
 
 class Display():
